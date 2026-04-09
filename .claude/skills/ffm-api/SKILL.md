@@ -1,3 +1,8 @@
+---
+name: ffm-api
+description: FFM API(Project Panama) 관련 작업 시 자동 로드. MemorySegment, Arena, MemoryLayout, VarHandle, 오프힙(off-heap) 메모리 관리 패턴과 금지 사항을 포함한다.
+---
+
 # FFM API (Project Panama) Skill
 
 ## 발동 조건
