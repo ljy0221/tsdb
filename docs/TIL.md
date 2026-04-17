@@ -23,3 +23,6 @@
 - **k-way merge의 newest-wins는 힙 비교자에서**: 1차 키 timestamp 오름차순, 2차 키 priority(소스 index) 오름차순 → poll한 원소와 같은 ts를 가진 나머지는 drain. 소스 순서만 `[memTable, sst_new, ..., sst_old]`로 주면 자연히 LSM 의미론이 된다.
 - `SSTableReader`에 체크섬 변조 테스트를 쓸 때, 매직 넘버 변조와 CRC32 변조는 **다른 코드 경로**다. 하나로 커버되지 않으니 둘 다 써야 한다.
 - `MergingIterator`의 `Node` record는 힙 원소당 할당 → 대량 병합 시 GC 압력 우려. 정확성 먼저, 벤치마크로 확인 후 mutable node / 풀링 검토 예정.
+- Phase 1 JMH 쓰기 벤치 확보: `memTableOnly` 9.47M ops/s, `endToEndFlush` 3.27M ops/s, `memTablePlusWal` 389 ops/s. **WAL DSYNC fsync가 ~2.57ms**로 durable 쓰기의 물리 상한이며, 이게 곧 "compaction을 쓰기 경로에 동기화하지 말 것"이라는 설계 제약으로 전환된다.
+- **백그라운드 compaction이 지금 기술적으로 불가능**한 이유: `SSTableReader`가 `Arena.ofConfined()`로 mmap을 쥐고 있어서 다른 스레드 접근은 `WrongThreadException` 확정. 해결은 `ofShared()` 전환(ADR 3개 재작성) 또는 중복 mmap뿐 — Phase 1에서 수동 트리거가 **유일한 합법적 선택**이 된 결정적 근거.
+- Java 숫자 리터럴 규칙: 언더스코어는 숫자 사이에만 허용. **상수 이름이 숫자로 시작하면 안 되지만**, `20_NEW`처럼 숫자+언더스코어+식별자 형태도 같은 규칙에 걸린다(compiler가 숫자 리터럴로 파싱). 테스트 상수는 `TS20_NEW`처럼 문자부터 시작해야 함.

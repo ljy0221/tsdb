@@ -71,15 +71,16 @@ kronos/
 ### Phase 1 — LSM-Tree 코어
 **목표**: 동작하는 LSM-Tree 엔진.
 ```
-[ ] MemTable (ConcurrentSkipListMap 기반)
-[ ] SSTable flush (오프힙 → 파일)
-[ ] WAL (Write-Ahead Log)
-[ ] SSTable 읽기 + 병합
-[ ] Basic Compaction
-[ ] JMH: 쓰기 처리량 측정
-[ ] 블로그: "LSM-Tree를 Java로 직접 구현하기" (2~3편)
+[x] MemTable (ConcurrentSkipListMap 기반)           — ADR-002
+[x] SSTable flush (오프힙 → 파일)                   — SSTableWriter/Reader, FFM mmap
+[x] WAL (Write-Ahead Log)                           — ADR-003, DSYNC
+[x] SSTable 읽기 + 병합                             — MergingIterator + LsmReadView
+[x] Basic Compaction                                — ADR-004, size-tiered N-to-1
+[x] JMH: 쓰기 처리량 측정                           — docs/benchmarks/phase1-2026-04-17.md
+[x] 블로그: "LSM-Tree를 Java로 직접 구현하기" (4편) — docs/blog/phase1-*.md
 ```
 **완료 기준**: 10만 건 write → flush → read가 정합성 있게 동작한다.
+`CompactorTest.hundred_thousand_entries_survive_compaction`으로 검증 완료.
 
 ### Phase 2 — 시계열 특화
 **목표**: TSDB라고 부를 수 있는 시점.

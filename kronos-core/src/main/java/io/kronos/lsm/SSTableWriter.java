@@ -8,6 +8,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Iterator;
 import java.util.zip.CRC32;
 
 /**
@@ -115,5 +116,90 @@ public final class SSTableWriter {
         }
 
         return new SSTableMeta(sstPath, minTs[0], maxTs[0], count);
+    }
+
+    /**
+     * {@link Iterator} 기반으로 SSTable을 직렬화한다. Compaction 경로 전용.
+     *
+     * <p>{@link #write(MemTable, Path)}와 포맷이 완전히 동일하다.
+     * iterator는 타임스탬프 오름차순으로 엔트리를 방출해야 한다.
+     *
+     * <p>iterator가 방출하는 엔트리 수를 사전에 알 수 없으므로(예: MergingIterator가
+     * 중복을 drain한다), 호출자는 <b>상한(upper bound)</b>을 넘긴다. 오프힙 버퍼는
+     * 상한 크기로 할당하고, 실제 쓰인 count로 header를 갱신한 뒤
+     * 실제 크기만큼만 파일에 기록한다.
+     *
+     * @param source         ts 오름차순 이터레이터
+     * @param sstPath        출력 경로 (이미 존재하면 IOException)
+     * @param maxEntryCount  방출 엔트리 수의 상한
+     * @return 기록된 SSTable의 메타데이터 (entryCount는 실제 값)
+     * @throws IllegalArgumentException maxEntryCount ≤ 0 이거나 iterator가 비어있는 경우
+     */
+    public static SSTableMeta writeFromIterator(
+            Iterator<TimestampValuePair> source,
+            Path sstPath,
+            long maxEntryCount) throws IOException {
+        if (maxEntryCount <= 0) {
+            throw new IllegalArgumentException("maxEntryCount must be positive");
+        }
+
+        long maxFileSize = HEADER_BYTES + maxEntryCount * ENTRY_BYTES + FOOTER_BYTES;
+
+        long minTs = Long.MAX_VALUE, maxTs = Long.MIN_VALUE;
+        long pos = HEADER_BYTES;
+        long actualCount = 0;
+
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment buf = arena.allocate(maxFileSize, ValueLayout.JAVA_LONG.byteAlignment());
+
+            // ── Data Block (iterator 소비, 공간은 header 이후부터) ─────────
+            while (source.hasNext()) {
+                TimestampValuePair p = source.next();
+                if (actualCount >= maxEntryCount) {
+                    throw new IOException(
+                        "Iterator exceeded maxEntryCount=" + maxEntryCount);
+                }
+                long ts = p.timestamp();
+                buf.set(ValueLayout.JAVA_LONG,   pos,     ts);
+                buf.set(ValueLayout.JAVA_DOUBLE, pos + 8, p.value());
+                pos += ENTRY_BYTES;
+                actualCount++;
+                if (ts < minTs) minTs = ts;
+                if (ts > maxTs) maxTs = ts;
+            }
+            if (actualCount == 0) {
+                throw new IllegalArgumentException("Iterator produced no entries");
+            }
+
+            // ── Header (실제 count로 갱신) ────────────────────────────────
+            buf.set(ValueLayout.JAVA_INT,  0L, MAGIC);
+            buf.set(ValueLayout.JAVA_INT,  4L, VERSION);
+            buf.set(ValueLayout.JAVA_LONG, 8L, actualCount);
+
+            // ── CRC32 over actual data block ──────────────────────────────
+            long dataBytes = actualCount * ENTRY_BYTES;
+            CRC32 crc32 = new CRC32();
+            crc32.update(buf.asSlice(HEADER_BYTES, dataBytes).asByteBuffer());
+            int checksum = (int) crc32.getValue();
+
+            // ── Footer (data block 끝에 바로 이어서) ──────────────────────
+            long fo = HEADER_BYTES + dataBytes;
+            buf.set(ValueLayout.JAVA_LONG, fo,        minTs);
+            buf.set(ValueLayout.JAVA_LONG, fo + 8L,   maxTs);
+            buf.set(ValueLayout.JAVA_INT,  fo + 16L,  checksum);
+
+            // ── 실제 크기만큼만 write ─────────────────────────────────────
+            long actualFileSize = HEADER_BYTES + dataBytes + FOOTER_BYTES;
+            try (FileChannel ch = FileChannel.open(sstPath,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                ByteBuffer nio = buf.asSlice(0, actualFileSize).asByteBuffer();
+                while (nio.hasRemaining()) {
+                    ch.write(nio);
+                }
+                ch.force(true);
+            }
+        }
+
+        return new SSTableMeta(sstPath, minTs, maxTs, actualCount);
     }
 }
