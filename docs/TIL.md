@@ -16,3 +16,10 @@
 - `Arena.close()` 이후 `MemorySegment`에 접근하면 `IllegalStateException` 발생 — 테스트로 검증 가능.
 - 인힙 `long[]` vs 오프힙 `MemorySegment` 성능: JMH 결과 오차 범위 내 동등. FFM API 오버헤드 = 0.
 - WSL2 환경에서 `gradle wrapper` 생성하려면 Gradle 바이너리를 직접 받아서 실행해야 함 (`gradle` 명령어 기본 설치 안 됨).
+
+## 2026-04-17
+
+- LSM-Tree 읽기 경로에서 **push-style callback(`forEachInOrder`)은 merge에 부적합**. 여러 소스를 한 스텝씩 전진시켜야 하는데 callback이 제어 흐름을 가져가버린다. `Iterator<T>`로 통일해야 MergingIterator가 성립한다.
+- **k-way merge의 newest-wins는 힙 비교자에서**: 1차 키 timestamp 오름차순, 2차 키 priority(소스 index) 오름차순 → poll한 원소와 같은 ts를 가진 나머지는 drain. 소스 순서만 `[memTable, sst_new, ..., sst_old]`로 주면 자연히 LSM 의미론이 된다.
+- `SSTableReader`에 체크섬 변조 테스트를 쓸 때, 매직 넘버 변조와 CRC32 변조는 **다른 코드 경로**다. 하나로 커버되지 않으니 둘 다 써야 한다.
+- `MergingIterator`의 `Node` record는 힙 원소당 할당 → 대량 병합 시 GC 압력 우려. 정확성 먼저, 벤치마크로 확인 후 mutable node / 풀링 검토 예정.
