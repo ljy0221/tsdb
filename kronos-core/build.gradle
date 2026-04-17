@@ -43,4 +43,30 @@ jmh {
     jvmArgs = ['--enable-preview', '--enable-native-access=ALL-UNNAMED']
     resultFormat = 'TEXT'
     resultsFile = project.file("build/results/jmh/results.txt")
+
+    // Runtime overrides via -P flags.
+    // -Pjmh.include=<regex>      → restrict which bench classes run
+    // -Pjmh.warmupIterations=N   → override @Warmup
+    // -Pjmh.iterations=N         → override @Measurement
+    // -Pjmh.forks=N              → override @Fork
+    // -Pjmh.warmup=<time>        → override warmup time per iteration
+    // -Pjmh.time=<time>          → override measurement time per iteration
+    if (project.hasProperty('jmh.include')) {
+        includes = [project.property('jmh.include')]
+    }
+    if (project.hasProperty('jmh.warmupIterations')) {
+        warmupIterations = Integer.parseInt(project.property('jmh.warmupIterations'))
+    }
+    if (project.hasProperty('jmh.iterations')) {
+        iterations = Integer.parseInt(project.property('jmh.iterations'))
+    }
+    if (project.hasProperty('jmh.forks')) {
+        fork = Integer.parseInt(project.property('jmh.forks'))
+    }
+    if (project.hasProperty('jmh.warmup')) {
+        warmup = project.property('jmh.warmup')
+    }
+    if (project.hasProperty('jmh.time')) {
+        timeOnIteration = project.property('jmh.time')
+    }
 }
