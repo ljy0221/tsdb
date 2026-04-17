@@ -85,11 +85,13 @@ kronos/
 ### Phase 2 — 시계열 특화
 **목표**: TSDB라고 부를 수 있는 시점.
 ```
-[ ] 타임스탬프 인덱스 (시간 범위 쿼리)
-[ ] Gorilla XOR 압축 구현 (Meta 논문)
+[x] Scan bench baseline — docs/benchmarks/phase2-2026-04-17.md
+    → 판정식 3개 조건 전부 FAIL → 다음은 인덱스 방향으로 확정
+[ ] SSTable 내부 sparse index (ADR-005)  — 인덱스 ADR 초안 후 구현
+[ ] Gorilla XOR 압축 구현 (Meta 논문)    — 인덱스 이후 재평가
 [ ] Delta-of-Delta 인코딩
-[ ] JMH: 압축률 + 압축/해제 속도
-[ ] 블로그: "Gorilla 논문 구현기"
+[ ] JMH: 인덱스 적용 후 scan bench 재측정 (완료 기준: p99<5ms 또는 5× 개선)
+[ ] 블로그: "Phase 2 벤치 설계 + 인덱스 구현기"
 ```
 **완료 기준**: 압축률 75% 이상 달성, 벤치마크 리포트 존재.
 
