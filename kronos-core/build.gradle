@@ -15,6 +15,15 @@ dependencies {
     // JMH
     jmh 'org.openjdk.jmh:jmh-core:1.37'
     jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
+
+    // JMH classes are in the test classpath so we can unit-test JMH-package helpers.
+    testImplementation 'org.openjdk.jmh:jmh-core:1.37'
+}
+
+sourceSets {
+    test {
+        java.srcDir 'src/jmh/java'
+    }
 }
 
 tasks.named('test') {
