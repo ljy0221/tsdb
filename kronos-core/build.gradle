@@ -29,3 +29,9 @@ tasks.withType(JavaExec).configureEach {
 tasks.withType(JavaCompile).configureEach {
     options.compilerArgs += ['--enable-preview', '-Xlint:preview']
 }
+
+jmh {
+    jvmArgs = ['--enable-preview', '--enable-native-access=ALL-UNNAMED']
+    resultFormat = 'TEXT'
+    resultsFile = project.file("build/results/jmh/results.txt")
+}
