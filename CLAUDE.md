@@ -77,7 +77,7 @@ kronos/
 [x] SSTable 읽기 + 병합                             — MergingIterator + LsmReadView
 [x] Basic Compaction                                — ADR-004, size-tiered N-to-1
 [x] JMH: 쓰기 처리량 측정                           — docs/benchmarks/phase1-2026-04-17.md
-[x] 블로그: "LSM-Tree를 Java로 직접 구현하기" (4편) — docs/blog/phase1-*.md
+[x] 블로그: "LSM-Tree를 Java로 직접 구현하기" (5편) — docs/blog/phase1-*.md
 ```
 **완료 기준**: 10만 건 write → flush → read가 정합성 있게 동작한다.
 `CompactorTest.hundred_thousand_entries_survive_compaction`으로 검증 완료.

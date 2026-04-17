@@ -26,3 +26,4 @@
 - Phase 1 JMH 쓰기 벤치 확보: `memTableOnly` 9.47M ops/s, `endToEndFlush` 3.27M ops/s, `memTablePlusWal` 389 ops/s. **WAL DSYNC fsync가 ~2.57ms**로 durable 쓰기의 물리 상한이며, 이게 곧 "compaction을 쓰기 경로에 동기화하지 말 것"이라는 설계 제약으로 전환된다.
 - **백그라운드 compaction이 지금 기술적으로 불가능**한 이유: `SSTableReader`가 `Arena.ofConfined()`로 mmap을 쥐고 있어서 다른 스레드 접근은 `WrongThreadException` 확정. 해결은 `ofShared()` 전환(ADR 3개 재작성) 또는 중복 mmap뿐 — Phase 1에서 수동 트리거가 **유일한 합법적 선택**이 된 결정적 근거.
 - Java 숫자 리터럴 규칙: 언더스코어는 숫자 사이에만 허용. **상수 이름이 숫자로 시작하면 안 되지만**, `20_NEW`처럼 숫자+언더스코어+식별자 형태도 같은 규칙에 걸린다(compiler가 숫자 리터럴로 파싱). 테스트 상수는 `TS20_NEW`처럼 문자부터 시작해야 함.
+- **Phase 1 closure 조건은 "체크박스 채우기"가 아니라 "네 편의 블로그가 새 결정을 설명할 수 있게 끝맺는 것"**이었다. 5편(Basic Compaction)은 ADR-004의 세 결정(size-tiered / 수동 트리거 / 뷰 스냅샷)이 **이전 ADR들(ADR-001의 `ofAuto` 금지, `ofConfined`로 인한 `WrongThreadException`, 4편 벤치의 WAL 2.57ms 상한)에 의해 강제된 결과**임을 드러내야 말이 된다. 자유도가 줄어드는 게 아니라 탐색 공간이 수렴하는 구조.
