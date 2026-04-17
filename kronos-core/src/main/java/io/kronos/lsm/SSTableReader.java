@@ -9,6 +9,8 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.OptionalDouble;
 import java.util.function.BiConsumer;
 import java.util.zip.CRC32;
@@ -140,6 +142,37 @@ public final class SSTableReader implements Closeable {
     /** 이 리더의 메타데이터를 반환한다. */
     public SSTableMeta meta() {
         return new SSTableMeta(path, minTs, maxTs, entryCount);
+    }
+
+    /**
+     * 파일의 모든 엔트리를 타임스탬프 오름차순으로 한 번 순회하는 이터레이터.
+     *
+     * <p>데이터 블록은 정렬 상태로 기록되므로 별도 정렬 없이 선형 스캔만 수행한다.
+     * k-way merge 경로 전용 — 랜덤 접근이 필요하면 {@link #get(long)}을 사용한다.
+     *
+     * <p>반환된 이터레이터는 이 리더의 mmap에 의존한다. {@link #close()} 이후
+     * 접근하면 {@link IllegalStateException}이 발생한다.
+     */
+    public Iterator<TimestampValuePair> iterator() {
+        return new Iterator<>() {
+            private long cursor = 0L;
+
+            @Override
+            public boolean hasNext() {
+                return cursor < entryCount;
+            }
+
+            @Override
+            public TimestampValuePair next() {
+                if (cursor >= entryCount) {
+                    throw new NoSuchElementException();
+                }
+                long ts  = readTimestamp(cursor);
+                double v = readValue(cursor);
+                cursor++;
+                return new TimestampValuePair(ts, v);
+            }
+        };
     }
 
     /** mmap unmap 및 Arena 해제. */

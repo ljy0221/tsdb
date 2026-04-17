@@ -1,5 +1,6 @@
 package io.kronos.lsm;
 
+import java.util.Iterator;
 import java.util.OptionalDouble;
 import java.util.function.BiConsumer;
 
@@ -47,6 +48,17 @@ public interface MemTable extends AutoCloseable {
      * @throws IllegalStateException freeze() 이전 호출 시
      */
     void forEachInOrder(BiConsumer<Long, Double> consumer);
+
+    /**
+     * 모든 엔트리를 타임스탬프 오름차순으로 반환하는 이터레이터.
+     *
+     * <p>merge 경로 전용 — 다른 소스(SSTable)와 k-way merge 가능하도록
+     * {@link #forEachInOrder}의 pull 버전을 제공한다.
+     * {@link #freeze()} 이후에만 호출 가능하다.
+     *
+     * @throws IllegalStateException freeze() 이전 호출 시
+     */
+    Iterator<TimestampValuePair> iterator();
 
     /** 오프힙 버퍼의 물리적 사용 바이트 수. */
     long sizeBytes();

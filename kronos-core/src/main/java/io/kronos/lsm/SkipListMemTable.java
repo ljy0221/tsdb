@@ -3,6 +3,9 @@ package io.kronos.lsm;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.OptionalDouble;
 import java.util.TreeMap;
 import java.util.function.BiConsumer;
@@ -122,6 +125,27 @@ public final class SkipListMemTable implements MemTable {
             double val = buffer.get(ValueLayout.JAVA_DOUBLE, offset + 8);
             consumer.accept(ts, val);
         }
+    }
+
+    @Override
+    public Iterator<TimestampValuePair> iterator() {
+        if (!frozen) {
+            throw new IllegalStateException("Must call freeze() before iterator()");
+        }
+        Iterator<Map.Entry<Long, Long>> inner = index.entrySet().iterator();
+        return new Iterator<>() {
+            @Override public boolean hasNext() { return inner.hasNext(); }
+
+            @Override
+            public TimestampValuePair next() {
+                if (!inner.hasNext()) throw new NoSuchElementException();
+                Map.Entry<Long, Long> e = inner.next();
+                long ts = e.getKey();
+                long offset = e.getValue();
+                double v = buffer.get(ValueLayout.JAVA_DOUBLE, offset + 8);
+                return new TimestampValuePair(ts, v);
+            }
+        };
     }
 
     @Override
