@@ -87,4 +87,41 @@ public final class LsmReadView {
             consumer.accept(p.timestamp(), p.value());
         }
     }
+
+    /**
+     * {@code [startTs, endTs]} 범위 내 엔트리 수만 카운트한다.
+     *
+     * <p>벤치 전용 측정 경로: {@link #scan(long, long, BiConsumer)}과 동일한
+     * {@link MergingIterator} + {@link SSTableMeta#overlaps(long, long)} 로직을 쓰되,
+     * {@link BiConsumer} 호출을 제거하여 {@code Double} 박싱/람다 디스패치
+     * 오버헤드가 측정에 섞이지 않도록 한다.
+     *
+     * <p>부수 효과: 향후 {@code COUNT(*)} 집계 쿼리의 베이스라인으로도 재사용 가능.
+     *
+     * @return {@code startTs <= ts <= endTs}인 엔트리 개수 (newest-wins 적용 후)
+     */
+    public long scanCount(long startTs, long endTs) {
+        List<Iterator<TimestampValuePair>> sources = new ArrayList<>(sstables.size() + 1);
+
+        if (memTable != null && memTable.size() > 0) {
+            sources.add(memTable.iterator());
+        }
+        for (SSTableReader r : sstables) {
+            SSTableMeta m = r.meta();
+            if (m.maxTimestamp() < startTs || m.minTimestamp() > endTs) continue;
+            sources.add(r.iterator());
+        }
+
+        if (sources.isEmpty()) return 0L;
+
+        MergingIterator merged = new MergingIterator(sources);
+        long count = 0L;
+        while (merged.hasNext()) {
+            TimestampValuePair p = merged.next();
+            if (p.timestamp() < startTs) continue;
+            if (p.timestamp() > endTs) break;
+            count++;
+        }
+        return count;
+    }
 }
