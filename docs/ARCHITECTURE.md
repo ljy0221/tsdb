@@ -6,70 +6,62 @@
 
 ## 🏗️ 전체 시스템 아키텍처
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                          API Layer                               │
-│   HTTP API (PUT/GET) + Prometheus Remote Write                  │
-└────────────┬──────────────────────────┬────────────────────────┘
-             │                          │
-       ┌─────▼──────┐           ┌───────▼──────┐
-       │  Write Path │           │   Read Path  │
-       │             │           │              │
-       │  timestamp+ │           │  time-range  │
-       │  datapoint  │           │  query       │
-       └──────┬──────┘           └───────┬──────┘
-              │                         │
-       ┌──────▼─────────────────────────▼─────────┐
-       │      LSM-Tree Engine Core                 │
-       │                                           │
-       │  ┌──────────────────────────────────┐   │
-       │  │       MemTable (In-Memory)       │   │
-       │  │  ConcurrentSkipListMap 기반      │   │
-       │  │  - 정렬된 insertion order 유지   │   │
-       │  │  - 오프힙 배열로 데이터 저장     │   │
-       │  └────┬─────────────────┬───────────┘   │
-       │       │ put/get         │ get_range    │
-       │       │                 │              │
-       │  ┌────▼──────┐     ┌────▼────────┐    │
-       │  │  WAL      │     │  Compactor  │    │
-       │  │  (Disk)   │     │  (Async)    │    │
-       │  │  DSYNC    │     │  Merge      │    │
-       │  └───────────┘     └─────┬───────┘    │
-       │       │                  │             │
-       │  ┌────▼──────────────────▼────────┐   │
-       │  │  SSTable Files (Immutable)     │   │
-       │  │  Level 0, Level 1, ...         │   │
-       │  │  - 정렬된 범위 저장             │   │
-       │  │  - mmap + sparse index (예정) │   │
-       │  └────┬─────────────────┬────────┘   │
-       │       │ overlaps()      │ scan      │
-       │       │ prune           │ binary    │
-       │  ┌────▼──────────────────▼────────┐   │
-       │  │  MergingIterator                │   │
-       │  │  (Multi-file merge read)        │   │
-       │  └──────────────────────────────────┘   │
-       └──────┬──────────────────────┬──────────┘
-              │                      │
-       ┌──────▼──────┐        ┌──────▼──────┐
-       │  Data       │        │  Metadata   │
-       │  (Bytes)    │        │  (Index,    │
-       │             │        │   Stats)    │
-       └──────┬──────┘        └──────┬──────┘
-              │                      │
-       ┌──────▼──────────────────────▼──────┐
-       │   Off-Heap Memory Layer             │
-       │   (FFM API + Arena Management)      │
-       │   - MemorySegment allocation        │
-       │   - Arena.ofConfined() (single-     │
-       │     threaded write, safe close)     │
-       └──────┬─────────────────────────────┘
-              │
-       ┌──────▼──────────────────────────────┐
-       │  File System (Linux/WSL2)            │
-       │  - mmap for SSTable reads            │
-       │  - fsync + DSYNC for durability      │
-       │  - Compaction background merge       │
-       └──────────────────────────────────────┘
+```mermaid
+graph TB
+    API["🌐 API Layer<br/>(HTTP PUT/GET + Prometheus Remote Write)"]
+    
+    subgraph Request["요청 분기"]
+        Write["✍️ Write Path<br/>(timestamp + datapoint)"]
+        Read["📖 Read Path<br/>(time-range query)"]
+    end
+    
+    API --> Write
+    API --> Read
+    
+    subgraph LSM["LSM-Tree Engine Core"]
+        MemTable["📦 MemTable<br/>(In-Memory)<br/>ConcurrentSkipListMap<br/>정렬된 insertion order"]
+        WAL["📝 WAL<br/>(Disk)<br/>DSYNC flush<br/>내구성 보장"]
+        SSTable["💾 SSTable Files<br/>(Immutable)<br/>Level 0, Level 1, ...<br/>정렬된 범위"]
+        MergingIterator["🔀 MergingIterator<br/>(Multi-file merge read)"]
+        Compactor["🔧 Compactor<br/>(Async)<br/>Merge"]
+        
+        Write --> MemTable
+        Write --> WAL
+        MemTable --> WAL
+        WAL --> SSTable
+        SSTable --> Compactor
+        SSTable --> MergingIterator
+        MemTable --> MergingIterator
+        Read --> MemTable
+        Read --> MergingIterator
+    end
+    
+    Write --> LSM
+    Read --> LSM
+    
+    Data["💾 Data<br/>(Bytes)"]
+    Metadata["📋 Metadata<br/>(Index, Stats)"]
+    
+    MergingIterator --> Data
+    MergingIterator --> Metadata
+    
+    OffHeap["🧠 Off-Heap Memory Layer<br/>(FFM API + Arena)<br/>MemorySegment allocation<br/>Arena.ofConfined()"]
+    FileSystem["📂 File System<br/>(Linux/WSL2)<br/>mmap • fsync • DSYNC<br/>page cache"]
+    
+    Data --> OffHeap
+    Metadata --> OffHeap
+    OffHeap --> FileSystem
+    
+    style API fill:#e6f0ff,stroke:#1f77b4,stroke-width:2px
+    style Request fill:#f0f0f0,stroke:#666
+    style LSM fill:#fff5e6,stroke:#ff7f0e,stroke-width:2px
+    style MemTable fill:#e6f0ff,stroke:#1f77b4
+    style WAL fill:#f0e6ff,stroke:#9467bd
+    style SSTable fill:#ffe6e6,stroke:#d62728
+    style MergingIterator fill:#fffae6,stroke:#bcbd22
+    style Compactor fill:#e6ffe6,stroke:#2ca02c
+    style OffHeap fill:#e6fdff,stroke:#17becf,stroke-width:2px
+    style FileSystem fill:#f0f0f0,stroke:#7f7f7f,stroke-width:2px
 ```
 
 ---
@@ -78,25 +70,28 @@
 
 ### MemTable (In-Memory)
 
-```
-┌────────────────────────────────────────────────┐
-│ ConcurrentSkipListMap<Long, Double>            │
-│ (Java Heap)                                    │
-└────────┬───────────────────────────────────────┘
-         │ keys/values 참조
-         │
-┌────────▼──────────────────────────────────────┐
-│ Off-Heap MemorySegment Array                   │
-│ (FFM API Arena-allocated)                      │
-│                                                │
-│  [Timestamp:8B][Value:8B][Timestamp:8B][...]   │
-│  ├─ Timestamp (long): milliseconds since epoch │
-│  └─ Value (double): 실제 메트릭값               │
-└────────────────────────────────────────────────┘
-
-Size: N × 16 bytes (N = MemTable entries)
-Lifetime: MemTable 생성 ~ flush 완료 후 close()
-GC Impact: Zero (Arena.close() → 오프힙 메모리 해제)
+```mermaid
+graph TB
+    subgraph Heap["Java Heap"]
+        ConcurrentSkipListMap["ConcurrentSkipListMap<br/>&lt;Long, Double&gt;<br/>(메타데이터 + 참조만)"]
+    end
+    
+    ConcurrentSkipListMap -->|keys/values 참조| OffHeapArray
+    
+    subgraph OffHeap["Off-Heap Memory<br/>(FFM API Arena-allocated)"]
+        OffHeapArray["MemorySegment Array<br/><br/>Entry 1: [TS₁: 8B | Val₁: 8B]<br/>Entry 2: [TS₂: 8B | Val₂: 8B]<br/>Entry N: [TSₙ: 8B | Valₙ: 8B]"]
+    end
+    
+    OffHeapArray -->|Arena.close()| GCFree["✅ GC 영향 제로<br/>메모리 즉시 해제"]
+    
+    MetaInfo["<b>메모리 정보</b><br/>크기: N × 16 bytes<br/>수명: MemTable 생성 ~ flush<br/>GC: Zero (명시적 해제)"]
+    
+    style Heap fill:#e6f0ff,stroke:#1f77b4,stroke-width:2px
+    style OffHeap fill:#e6fdff,stroke:#17becf,stroke-width:2px
+    style ConcurrentSkipListMap fill:#fff0e6,stroke:#ff7f0e
+    style OffHeapArray fill:#e6ffe6,stroke:#2ca02c
+    style GCFree fill:#ffe6e6,stroke:#d62728
+    style MetaInfo fill:#f0f0f0,stroke:#666
 ```
 
 ### SSTable (Disk + mmap)

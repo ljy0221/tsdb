@@ -26,14 +26,17 @@
 
 #### 벤치마크 결과
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ Operation                │ Throughput  │ Latency        │
-├─────────────────────────────────────────────────────────┤
-│ MemTable PUT (in-memory) │ 9.47M ops/s │ ~100 ns/op     │
-│ + Flush to SSTable       │ 3.27M ops/s │ ~30.6ms/100k   │
-│ + WAL (DSYNC)            │ 389 ops/s   │ ~2.57ms/fsync  │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph Results["Phase 1 벤치마크 결과"]
+        Op1["MemTable PUT<br/>(in-memory)<br/>9.47M ops/s<br/>~100 ns/op"]
+        Op2["Flush to SSTable<br/>(durable)<br/>3.27M ops/s<br/>~30.6ms/100k"]
+        Op3["WAL + MemTable<br/>(DSYNC)<br/>389 ops/s<br/>~2.57ms/fsync"]
+    end
+    
+    style Op1 fill:#e6ffe6,stroke:#2ca02c,stroke-width:2px
+    style Op2 fill:#fffae6,stroke:#bcbd22,stroke-width:2px
+    style Op3 fill:#ffe6e6,stroke:#d62728,stroke-width:2px
 ```
 
 #### 통찰 1: fsync 비용의 절대적 우위
@@ -199,48 +202,49 @@ RECENT (endTs == dataMax):
 
 ### 현재 상태 (Phase 1)
 
-```
-쓰기 처리량:     9.47M ops/s (in-memory) ✅ 우수
-쓰기 end-to-end: 3.27M ops/s (durable)   ✅ 양호
-읽기 지연:       21.1ms (p99, 1% 선택성)  ❌ 필요 개선
+```mermaid
+graph TB
+    subgraph Current["Phase 1 성능"]
+        Write1["쓰기 처리량<br/>9.47M ops/s<br/>(in-memory)<br/>✅ 우수"]
+        Write2["쓰기 end-to-end<br/>3.27M ops/s<br/>(durable)<br/>✅ 양호"]
+        Read1["읽기 지연<br/>21.1ms p99<br/>1% 선택성<br/>❌ 필요 개선"]
+    end
+    
+    style Write1 fill:#e6ffe6,stroke:#2ca02c,stroke-width:2px
+    style Write2 fill:#fffae6,stroke:#bcbd22,stroke-width:2px
+    style Read1 fill:#ffe6e6,stroke:#d62728,stroke-width:2px
 ```
 
 ### Phase 2 목표
 
-#### 절대 기준 (spec §4)
+**절대 기준**:
 
-```
-p99(files=4, RECENT, sel=0.01) < 5ms  AND
-p99(files=1, RECENT, sel=0.01) < 5ms
-```
+- p99(files=4, RECENT, sel=0.01) < 5ms AND
+- p99(files=1, RECENT, sel=0.01) < 5ms
 
-#### 상대 기준 (spec §4 후반)
+**상대 기준**:
 
-```
-files=1, RECENT, sel=0.01 baseline (21.1ms) 대비
-5배 이상 개선
-```
+- files=1, RECENT, sel=0.01 baseline (21.1ms) 대비 5배 이상 개선
 
-#### 달성 기준 (더 관대한 쪽)
-
-```
-둘 중 하나만 만족해도 Phase 2 완료
-```
+**달성 기준**: 둘 중 하나만 만족해도 완료
 
 ### 예상 성능 곡선
 
-```
-Current (Phase 1):
-  ████████████████████████ 21.1ms
-
-With Sparse Index (Phase 2 예상):
-  ███████ 5.0ms (4-5배 개선)
-
-  메커니즘:
-  1. Binary search on index: O(log 262) ≈ 8 step
-  2. Skip to first block: 1회 read
-  3. Linear scan within range: K entries (1-10%)
-  4. Total: ~100-200 entries 읽기 (vs 1M 현재)
+```mermaid
+graph TB
+    subgraph Improvement["성능 개선 예상"]
+        Current["Phase 1<br/>████████████████████████ 21.1ms"]
+        Target["Phase 2<br/>███████ 5.0ms<br/>(4-5배 개선)"]
+    end
+    
+    Process["메커니즘<br/>① Binary search on index O(log 262) ≈ 8 step<br/>② Skip to first block 1회 read<br/>③ Linear scan K entries 1-10%<br/>총: ~100-200 entries 읽기 vs 1M"]
+    
+    Current --> Target
+    Target --> Process
+    
+    style Current fill:#ffe6e6,stroke:#d62728,stroke-width:2px
+    style Target fill:#e6ffe6,stroke:#2ca02c,stroke-width:2px
+    style Process fill:#fff5e6,stroke:#ff7f0e,stroke-width:2px
 ```
 
 ---

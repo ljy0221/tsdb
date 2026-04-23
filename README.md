@@ -49,45 +49,52 @@
 
 ## 🏗️ 아키텍처 (LSM-Tree + FFM API)
 
+```mermaid
+graph TB
+    API["🌐 API Layer<br/>(HTTP PUT/GET + Prometheus Remote Write)"]
+    
+    subgraph Request["요청 분기"]
+        Write["✍️ Write Path<br/>(timestamp + datapoint)"]
+        Read["📖 Read Path<br/>(time-range query)"]
+    end
+    
+    API --> Write
+    API --> Read
+    
+    subgraph LSM["LSM-Tree Engine Core"]
+        MemTable["📦 MemTable<br/>(In-Memory)<br/>ConcurrentSkipListMap<br/>+ Off-heap storage"]
+        WAL["📝 WAL<br/>(Write-Ahead Log)<br/>DSYNC flush<br/>Durability"]
+        SSTable["💾 SSTable<br/>(Disk)<br/>Immutable files<br/>+ mmap"]
+        Compactor["🔧 Compaction Engine<br/>(Size-Tiered<br/>N-to-1 Merge)"]
+        
+        Write --> MemTable
+        Write --> WAL
+        MemTable --> WAL
+        WAL --> SSTable
+        SSTable --> Compactor
+        Read --> MemTable
+        Read --> SSTable
+    end
+    
+    Write --> LSM
+    Read --> LSM
+    
+    OffHeap["🧠 Off-Heap Memory Layer<br/>(FFM API / MemorySegment)<br/>Arena-based allocation"]
+    FileSystem["📂 File System<br/>(Linux/WSL2)<br/>mmap + fsync + page cache"]
+    
+    LSM --> OffHeap
+    OffHeap --> FileSystem
+    
+    style API fill:#e6f0ff,stroke:#1f77b4,stroke-width:2px
+    style Request fill:#f0f0f0,stroke:#666
+    style LSM fill:#fff5e6,stroke:#ff7f0e,stroke-width:2px
+    style MemTable fill:#e6f0ff,stroke:#1f77b4
+    style WAL fill:#f0e6ff,stroke:#9467bd
+    style SSTable fill:#ffe6e6,stroke:#d62728
+    style Compactor fill:#e6ffe6,stroke:#2ca02c
+    style OffHeap fill:#e6fdff,stroke:#17becf,stroke-width:2px
+    style FileSystem fill:#f0f0f0,stroke:#7f7f7f,stroke-width:2px
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        API Layer                             │
-│  (HTTP 쓰기/읽기 + Prometheus Remote Write 수신)              │
-└────────────┬────────────────────────────┬────────────────────┘
-             │                            │
-       ┌─────▼──────┐              ┌──────▼──────┐
-       │  Write Path │              │  Read Path  │
-       └─────┬──────┘              └──────┬──────┘
-             │                            │
-       ┌─────▼────────────────────────────▼────────┐
-       │          LSM-Tree Engine Core              │
-       │  ┌──────────┐      ┌──────────┐           │
-       │  │ MemTable │ ◄─┐  │  SSTable │           │
-       │  │(InMemory)│   │  │ (Disk)   │           │
-       │  └──────────┘   │  └──────────┘           │
-       │       ▲         │       ▲                  │
-       │       │      ┌──▼──┐   │                  │
-       │       └──────┤ WAL ├───┘                  │
-       │              └─────┘                      │
-       │        (Write-Ahead Log)                  │
-       │                                           │
-       │  ┌──────────────────────────────────┐    │
-       │  │      Compaction Engine           │    │
-       │  │ (Size-Tiered N-to-1 Strategy)    │    │
-       │  └──────────────────────────────────┘    │
-       └──────────────┬──────────────────────────┘
-                      │
-       ┌──────────────▼──────────────┐
-       │    Off-Heap Memory Layer     │
-       │    (FFM API / MemorySegment) │
-       └──────────────┬──────────────┘
-                      │
-       ┌──────────────▼──────────────┐
-       │  File System (mmap + fsync) │
-       └─────────────────────────────┘
-```
-
-[Excalidraw 다이어그램으로 보기](https://excalidraw.com) (상위 다이어그램을 excalidraw로 재작성)
 
 ### 각 계층의 역할
 
@@ -103,35 +110,52 @@
 
 ## 🔬 개발 로드맵 (Phase 기반)
 
+```mermaid
+graph LR
+    Phase0["<b>✅ Phase 0</b><br/>FFM API 기초<br/>(완료)<br/><br/>OffHeapLongArray<br/>JMH 벤치마크<br/>블로그"]
+    Phase1["<b>✅ Phase 1</b><br/>LSM-Tree 코어<br/>(완료)<br/><br/>MemTable<br/>SSTable<br/>WAL<br/>Compaction<br/>9.47M ops/s"]
+    Phase2["<b>🚀 Phase 2</b><br/>시계열 특화<br/>(진행 중)<br/><br/>Sparse Index<br/>Gorilla XOR<br/>Delta-of-Delta<br/>p99 < 5ms"]
+    Phase3["<b>📋 Phase 3</b><br/>연동 레이어<br/>(예정)<br/><br/>HTTP API<br/>Prometheus<br/>Grafana<br/>0.1.0 Release"]
+    
+    Phase0 --> Phase1
+    Phase1 --> Phase2
+    Phase2 --> Phase3
+    
+    style Phase0 fill:#e6ffe6,stroke:#2ca02c,stroke-width:3px,color:#000
+    style Phase1 fill:#e6ffe6,stroke:#2ca02c,stroke-width:3px,color:#000
+    style Phase2 fill:#fff5e6,stroke:#ff7f0e,stroke-width:3px,color:#000
+    style Phase3 fill:#e6f0ff,stroke:#1f77b4,stroke-width:2px,color:#000
+```
+
 ### ✅ Phase 0 — FFM API 기초 (완료)
+
 **목표**: `long[]`의 오프힙 버전 구현 + GC 영향 없음 확인
 
-```
-[x] OffHeapLongArray: get/set/close (MemorySegment 기반)
-[x] JMH: 인힙 long[] vs 오프힙 MemorySegment 성능 비교
-[x] 블로그: "Java 22 FFM API로 오프힙 배열 만들기"
-```
+- ✅ OffHeapLongArray: get/set/close (MemorySegment 기반)
+- ✅ JMH: 인힙 long[] vs 오프힙 MemorySegment 성능 비교
+- ✅ 블로그: "Java 22 FFM API로 오프힙 배열 만들기"
 
 **벤치마크 결과**: [Phase 0 결과 보고서](docs/benchmarks/phase0-2026-04-09.md)
 
 ---
 
 ### ✅ Phase 1 — LSM-Tree 코어 (완료)
+
 **목표**: 동작하는 LSM-Tree 엔진 구현
 
-```
-[x] MemTable (ConcurrentSkipListMap 기반)
-[x] SSTable flush (오프힙 → 파일)
-[x] WAL (Write-Ahead Log with DSYNC)
-[x] SSTable 읽기 + 병합 (MergingIterator)
-[x] Basic Compaction (Size-Tiered)
-[x] 100,000 엔트리 정합성 테스트 통과
-[x] JMH 벤치마크 (9.47 M ops/s 달성)
-[x] 블로그 5편 시리즈 게시
-```
+- ✅ MemTable (ConcurrentSkipListMap 기반)
+- ✅ SSTable flush (오프힙 → 파일)
+- ✅ WAL (Write-Ahead Log with DSYNC)
+- ✅ SSTable 읽기 + 병합 (MergingIterator)
+- ✅ Basic Compaction (Size-Tiered)
+- ✅ 100,000 엔트리 정합성 테스트 통과
+- ✅ JMH 벤치마크 (9.47 M ops/s 달성)
+- ✅ 블로그 5편 시리즈 게시
 
-**완료 기준**: ✅ 100,000 건 write → flush → read 정합성 + 벤치마크 검증  
+**완료 기준**: ✅ 100,000 건 write → flush → read 정합성 + 벤치마크 검증
+
 **관련 파일**:
+
 - 벤치마크: [Phase 1 결과](docs/benchmarks/phase1-2026-04-17.md)
 - ADR: [ADR-002](docs/ADR/ADR-002-memtable-heap-index.md), [ADR-003](docs/ADR/ADR-003-wal-implementation.md), [ADR-004](docs/ADR/ADR-004-basic-compaction.md)
 - 블로그: [Phase1 시리즈](docs/blog/)
@@ -139,36 +163,36 @@
 ---
 
 ### 🚀 Phase 2 — 시계열 특화 (진행 중)
+
 **목표**: TSDB라고 부를 수 있는 수준
 
-```
-[x] Scan bench baseline (1M 엔트리, 16 조합)
-[ ] SSTable 내부 sparse index (ADR-005) ← 현재 작업 중
-[ ] Gorilla XOR 압축 구현 (Meta 논문)
-[ ] Delta-of-Delta 인코딩
-[ ] 인덱스 적용 후 scan bench 재측정 (목표: 5× 개선)
-[ ] 블로그: "Phase 2 벤치 설계 + 인덱스 구현기"
-```
+- ✅ Scan bench baseline (1M 엔트리, 16 조합)
+- 🔄 SSTable 내부 sparse index (ADR-005) ← 현재 작업 중
+- ⏳ Gorilla XOR 압축 구현 (Meta 논문)
+- ⏳ Delta-of-Delta 인코딩
+- ⏳ 인덱스 적용 후 scan bench 재측정 (목표: 5× 개선)
+- ⏳ 블로그: "Phase 2 벤치 설계 + 인덱스 구현기"
 
 **완료 기준**: p99 < 5ms or 5× 개선 달성 + 압축률 75% 이상
 
-**현 상태**: 판정식 3개 조건 모두 FAIL → 인덱스 필요성 확정  
+**현 상태**: 판정식 3개 조건 모두 FAIL → 인덱스 필요성 확정
+
 **벤치마크 데이터**:
+
 - [Phase 2 상세 분석](docs/benchmarks/phase2-2026-04-17.md)
 - [설계 스펙](docs/superpowers/specs/2026-04-17-phase2-scan-bench-design.md)
 
 ---
 
 ### 📋 Phase 3 — 연동 레이어 (예정)
+
 **목표**: 실제로 쓸 수 있는 수준
 
-```
-[ ] HTTP API (쓰기/범위 읽기)
-[ ] Prometheus Remote Write 수신
-[ ] Grafana 데이터소스 연동
-[ ] 최종 벤치마크 (vs QuestDB 비교)
-[ ] GitHub 0.1.0 릴리즈
-```
+- ⏳ HTTP API (쓰기/범위 읽기)
+- ⏳ Prometheus Remote Write 수신
+- ⏳ Grafana 데이터소스 연동
+- ⏳ 최종 벤치마크 (vs QuestDB 비교)
+- ⏳ GitHub 0.1.0 릴리즈
 
 ---
 
